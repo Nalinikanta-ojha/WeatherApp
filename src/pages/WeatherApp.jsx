@@ -1,5 +1,5 @@
-// src/pages/WeatherApp.jsx
 import { useEffect, useState } from "react";
+import { useGeolocated } from "react-geolocated";
 import "../App.css";
 import WeatherBackground from "../components/WeatherBackground";
 import {
@@ -16,7 +16,7 @@ import {
   WindIcon,
 } from "../components/Icon";
 
-// ✅ Move InfoCard ABOVE WeatherApp to avoid hoisting error
+// ✅ InfoCard component
 const InfoCard = ({ icon, label, value }) => (
   <div className="bg-white/20 backdrop-blur-md rounded-lg p-3 shadow flex flex-col items-center justify-center text-center">
     {icon && <div className="mb-1">{icon}</div>}
@@ -33,6 +33,19 @@ const WeatherApp = () => {
   const [error, setError] = useState("");
 
   const API_KEY = "112dd024408de7db5bc53c84f8fae57f";
+
+  const {
+    coords,
+    isGeolocationAvailable,
+    isGeolocationEnabled,
+    positionError,
+    getPosition,
+  } = useGeolocated({
+    positionOptions: {
+      enableHighAccuracy: true,
+    },
+    userDecisionTimeout: 5000,
+  });
 
   useEffect(() => {
     if (city.trim().length >= 3 && !weather) {
@@ -69,49 +82,41 @@ const WeatherApp = () => {
     }
   };
 
-  const getDistanceKm = (lat1, lon1, lat2, lon2) => {
-    const R = 6371;
-    const dLat = ((lat2 - lat1) * Math.PI) / 180;
-    const dLon = ((lon2 - lon1) * Math.PI) / 180;
-    const a =
-      Math.sin(dLat / 2) ** 2 +
-      Math.cos((lat1 * Math.PI) / 180) *
-        Math.cos((lat2 * Math.PI) / 180) *
-        Math.sin(dLon / 2) ** 2;
-    return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
-  };
-
   const getWeatherByLocation = async () => {
     setError("");
-    if (!navigator.geolocation) {
+
+    if (!isGeolocationAvailable) {
       setError("Geolocation is not supported by your browser.");
       return;
     }
 
-    navigator.geolocation.getCurrentPosition(
-      async ({ coords }) => {
-        const { latitude: lat, longitude: lon } = coords;
+    if (!isGeolocationEnabled) {
+      setError("Geolocation is not enabled.");
+      return;
+    }
 
-        try {
-          const gunupurLat = 19.08;
-          const gunupurLon = 83.81;
-          const isNearGunupur =
-            getDistanceKm(lat, lon, gunupurLat, gunupurLon) <= 20;
+    if (!coords) {
+      setError("Detecting your location...");
+      getPosition();
+      return;
+    }
 
-          const placeName = isNearGunupur ? "Gunupur" : "your location";
+    const { latitude: lat, longitude: lon } = coords;
 
-          await fetchWeatherData(
-            `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${API_KEY}&units=metric`,
-            placeName
-          );
-        } catch (err) {
-          setError("Could not determine your location.");
-        }
-      },
-      () => {
-        setError("Location access denied.");
-      }
-    );
+    try {
+      const locationRes = await fetch(
+        `https://api.openweathermap.org/geo/1.0/reverse?lat=${lat}&lon=${lon}&limit=1&appid=${API_KEY}`
+      );
+      const locationData = await locationRes.json();
+      const cityName = locationData?.[0]?.name || "Your Location";
+
+      await fetchWeatherData(
+        `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${API_KEY}&units=metric`,
+        cityName
+      );
+    } catch (err) {
+      setError("Could not fetch weather data based on your location.");
+    }
   };
 
   const handleSearch = async (e) => {
@@ -122,17 +127,8 @@ const WeatherApp = () => {
     );
   };
 
-  const getWeatherCondition = () =>
-    weather && {
-      main: weather.weather[0].main,
-      isDay:
-        Date.now() / 1000 > weather.sys.sunrise &&
-        Date.now() / 1000 < weather.sys.sunset,
-    };
-
   return (
     <div className="min-h-screen w-full relative overflow-hidden bg-gradient-to-br from-sky-200 via-emerald-100 to-white">
-      {/* Optional semi-transparent sky/cloud overlay */}
       <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/clouds.png')] opacity-10 pointer-events-none z-0" />
 
       <div className="relative z-10 flex items-center justify-center min-h-screen px-4">
@@ -188,6 +184,11 @@ const WeatherApp = () => {
                   📍 Use My Location
                 </button>
               </div>
+              {positionError && (
+                <p className="text-red-500 text-center mt-2">
+                  Location Error: {positionError.message}
+                </p>
+              )}
             </form>
           ) : (
             <div className="space-y-6">
